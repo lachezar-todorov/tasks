@@ -4,10 +4,14 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Основен панел</title>
-<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="style.css?v=3">
 </head>
 <body>
-  <div class="topbar">Табло • Задачи <span id="todayLabel"></span></div>
+  <div class="topbar">
+    <img class="site-logo" src="logo.svg" alt="" onerror="this.style.display='none'">
+    <span class="topbar-title">Табло • Задачи</span>
+    <span id="todayLabel"></span>
+  </div>
   <div class="wrap">
     <div class="card">
       <h2>Нова задача</h2>
@@ -17,7 +21,8 @@
         <button class="btn-primary" id="addBtn">Добави</button>
       </div>
     </div>
-    <div class="card" id="pendingCard"></div>
+    <div class="card pending-card" id="approvalCard"></div>
+    <div class="card" id="activeCard"></div>
     <div class="card" id="doneCard"></div>
     <div class="card">
       <h2>Лични линкове — изпрати на всеки</h2>
@@ -36,6 +41,40 @@
     if (!pin) { location.href = 'index.html'; }
 
     let data = [];
+    let editingId = null;
+    let editingCommentId = null;
+    const openComments = new Set();
+    const commentDrafts = {};
+
+    // Две отделни нива на "прочетено": ниво коментар (всеки коментар поотделно,
+    // маркира се само като се кликне direktно върху него) и ниво задача (само
+    // "новото" на самата задача — маха се щом отвориш панела ѝ, но се връща
+    // автоматично щом дойде нов/редактиран коментар, защото се пази заедно с
+    // "отпечатък" на текущите коментари, а не просто дали някога е бил отварян).
+    const SEEN_COMMENTS_KEY = 'seenComments_admin';
+    const SEEN_TASKS_KEY = 'seenTasks_admin';
+    let seenComments, seenTasks;
+    try { seenComments = new Set(JSON.parse(localStorage.getItem(SEEN_COMMENTS_KEY) || '[]')); }
+    catch (e) { seenComments = new Set(); }
+    try { seenTasks = JSON.parse(localStorage.getItem(SEEN_TASKS_KEY) || '{}'); }
+    catch (e) { seenTasks = {}; }
+    function saveSeenComments() { localStorage.setItem(SEEN_COMMENTS_KEY, JSON.stringify(Array.from(seenComments))); }
+    function saveSeenTasks() { localStorage.setItem(SEEN_TASKS_KEY, JSON.stringify(seenTasks)); }
+    function isUnread(c) { return c.author !== 'Админ' && !seenComments.has(c.id); }
+    function taskSignature(t) { return (t.comments || []).map(function (c) { return c.id + ':' + c.date; }).join('|'); }
+    function isTaskUnread(t) {
+      const neverOpened = !(t.id in seenTasks);
+      const hasNewComments = (t.comments || []).some(isUnread) && seenTasks[t.id] !== taskSignature(t);
+      return neverOpened || hasNewComments;
+    }
+    function markTaskOpened(t) {
+      seenTasks[t.id] = taskSignature(t);
+      saveSeenTasks();
+    }
+    function markCommentSeen(id) {
+      seenComments.add(id);
+      saveSeenComments();
+    }
 
     function esc(s) {
       return String(s).replace(/[&<>"']/g, function (c) {
@@ -64,50 +103,254 @@
       alert('Грешка от сървъра: ' + (err && err.message ? err.message : err));
     }
 
-    function render() {
-      if (!Array.isArray(data)) {
-        document.getElementById('pendingCard').innerHTML = '<h2>Активни задачи</h2><div class="empty">Няма данни (виж конзолата за грешка).</div>';
-        document.getElementById('doneCard').innerHTML = '';
-        return;
-      }
-      const pending = data.filter(function (t) { return t.status !== 'Изпълнена'; });
-      const done = data.filter(function (t) { return t.status === 'Изпълнена'; });
-      const order = [], map = {};
-      pending.forEach(function (t) { if (!(t.assignee in map)) { map[t.assignee] = []; order.push(t.assignee); } map[t.assignee].push(t); });
+    function peopleOptions(selected) {
+      return Object.values(NAME_MAP).map(function (n) {
+        return '<option value="' + esc(n) + '"' + (n === selected ? ' selected' : '') + '>' + esc(n) + '</option>';
+      }).join('');
+    }
 
-      let html = '<h2>Активни задачи (' + pending.length + ')</h2>';
-      if (order.length) {
-        order.forEach(function (name) {
-          html += '<div class="group-name">' + esc(name) + ' (' + map[name].length + ')</div><ul class="tasks">';
-          map[name].forEach(function (t) {
-            html += '<li><input type="checkbox" class="chk" data-id="' + esc(t.id) + '"><span class="task-text">' + esc(t.text) + '</span><button class="btn-ghost" data-del="' + esc(t.id) + '">✕</button></li>';
+    function commentsHtml(t) {
+      const open = openComments.has(t.id);
+      const list = (t.comments || []).map(function (c) {
+        const unread = isUnread(c);
+        const cls = 'comment ' + (c.author === 'Админ' ? 'comment-admin' : 'comment-person') + (unread ? ' comment-unread' : '');
+        const body = c.id === editingCommentId
+          ? '<div class="comment-edit-row"><input type="text" class="comment-edit-text" value="' + esc(c.text) + '">' +
+            '<button class="btn-primary comment-edit-save" data-comment="' + esc(c.id) + '">Запази</button>' +
+            '<button class="btn-ghost comment-edit-cancel" data-comment="' + esc(c.id) + '">Отказ</button></div>'
+          : '<div class="comment-text"><span class="comment-text-value">' + esc(c.text) + '</span>' +
+            '<div class="comment-actions">' +
+              '<button class="comment-edit-btn" data-comment="' + esc(c.id) + '" title="Редактирай">✎</button>' +
+              '<button class="comment-delete-btn" data-comment="' + esc(c.id) + '" title="Изтрий">🗑</button>' +
+            '</div></div>';
+        return '<div class="' + cls + '" data-comment-id="' + esc(c.id) + '" title="' + (unread ? 'Кликни за прочетено' : '') + '">' +
+          '<b>' + esc(c.author) + '</b><span class="comment-date">' + esc(c.date) + '</span>' +
+          (unread ? '<span class="comment-unread-badge">Ново</span>' : '') + body + '</div>';
+      }).join('');
+      const draft = commentDrafts[t.id] || '';
+      return '<div class="comments" id="comments-' + esc(t.id) + '" style="display:' + (open ? 'block' : 'none') + '">' +
+        '<div class="comment-list">' + (list || '<div class="comment-empty">Няма коментари.</div>') + '</div>' +
+        '<div class="comment-add">' +
+          '<input type="text" class="comment-input" data-task="' + esc(t.id) + '" placeholder="Коментар..." value="' + esc(draft) + '">' +
+          '<button class="btn-ghost comment-send" data-task="' + esc(t.id) + '">Изпрати</button>' +
+        '</div>' +
+      '</div>';
+    }
+
+    function commentToggleBtn(t) {
+      const n = (t.comments || []).length;
+      const unread = (t.comments || []).some(isUnread);
+      return '<button class="btn-ghost comment-toggle' + (unread ? ' comment-toggle-unread' : '') + '" data-toggle="' + esc(t.id) + '">💬 ' + n + '</button>';
+    }
+
+    // fullCheck=true (само "Чакат одобрение"): удебелява и чисто нова задача
+    // без нито един коментар — админът трябва да забележи нови предложения.
+    // fullCheck=false/липсва (Активни/Изпълнени): удебелява само ако има
+    // непрочетен коментар — безсмислено е задача, добавена от самия админ,
+    // да излиза "нова" за него.
+    function taskTextHtml(t, extraCls, fullCheck) {
+      const unread = fullCheck ? isTaskUnread(t) : (t.comments || []).some(isUnread);
+      const cls = 'task-text' + (extraCls ? ' ' + extraCls : '') + (unread ? ' task-text-unread' : '');
+      return '<span class="' + cls + '">' + (unread ? '<span class="unread-dot"></span>' : '') + esc(t.text) + '</span>';
+    }
+
+    // Само за "Чакат одобрение" — маркира самата задача като видяна, без да
+    // се налага да отваряш (евентуално празния) панел с коментари за да го направиш.
+    function markReadBtnHtml(t) {
+      if (!isTaskUnread(t)) return '';
+      return '<button class="btn-ghost mark-read-btn" data-mark-read="' + esc(t.id) + '" title="Маркирай задачата като прочетена">✓ Прочетено</button>';
+    }
+
+    function editRowHtml(t) {
+      return '<div class="edit-row">' +
+        '<input type="text" class="edit-text" value="' + esc(t.text) + '">' +
+        '<select class="edit-assignee">' + peopleOptions(t.assignee) + '</select>' +
+        '<button class="btn-primary edit-save" data-id="' + esc(t.id) + '">Запази</button>' +
+        '<button class="btn-ghost edit-cancel" data-id="' + esc(t.id) + '">Отказ</button>' +
+      '</div>';
+    }
+
+    function groupByAssignee(rows) {
+      const order = [], map = {};
+      rows.forEach(function (t) { if (!(t.assignee in map)) { map[t.assignee] = []; order.push(t.assignee); } map[t.assignee].push(t); });
+      return { order: order, map: map };
+    }
+
+    function renderApproval() {
+      const pending = data.filter(function (t) { return t.status === 'Чака одобрение'; });
+      let html = '<h2>Чакат одобрение (' + pending.length + ')</h2>';
+      if (pending.length) {
+        const g = groupByAssignee(pending);
+        g.order.forEach(function (name) {
+          html += '<div class="group-name">' + esc(name) + ' (' + g.map[name].length + ')</div><ul class="tasks">';
+          g.map[name].forEach(function (t) {
+            html += '<li data-id="' + esc(t.id) + '"><div class="task-row">' +
+              '<span class="badge-pending">Чака</span>' +
+              taskTextHtml(t, null, true) +
+              markReadBtnHtml(t) +
+              commentToggleBtn(t) +
+              '<button class="btn-primary" data-approve="' + esc(t.id) + '">Одобри</button>' +
+              '<button class="btn-ghost" data-del="' + esc(t.id) + '">Отхвърли</button>' +
+              '</div>' + commentsHtml(t) + '</li>';
+          });
+          html += '</ul>';
+        });
+      } else {
+        html += '<div class="empty">Няма предложени задачи, чакащи одобрение.</div>';
+      }
+      document.getElementById('approvalCard').innerHTML = html;
+    }
+
+    function renderActive() {
+      const active = data.filter(function (t) { return t.status === 'Активна'; });
+      let html = '<h2>Активни задачи (' + active.length + ')</h2>';
+      if (active.length) {
+        const g = groupByAssignee(active);
+        g.order.forEach(function (name) {
+          html += '<div class="group-name">' + esc(name) + ' (' + g.map[name].length + ')</div><ul class="tasks">';
+          g.map[name].forEach(function (t) {
+            const row = t.id === editingId ? editRowHtml(t) :
+              '<input type="checkbox" class="chk" data-id="' + esc(t.id) + '">' +
+              taskTextHtml(t) +
+              commentToggleBtn(t) +
+              '<button class="btn-ghost" data-edit="' + esc(t.id) + '">✎</button>' +
+              '<button class="btn-ghost" data-del="' + esc(t.id) + '">✕</button>';
+            html += '<li data-id="' + esc(t.id) + '"><div class="task-row">' + row + '</div>' + commentsHtml(t) + '</li>';
           });
           html += '</ul>';
         });
       } else {
         html += '<div class="empty">Няма активни задачи.</div>';
       }
-      document.getElementById('pendingCard').innerHTML = html;
+      document.getElementById('activeCard').innerHTML = html;
+    }
 
-      let doneHtml = '<h2>Изпълнени днес (' + done.length + ')</h2>';
+    function renderDone() {
+      const done = data.filter(function (t) { return t.status === 'Изпълнена'; });
+      let html = '<h2>Изпълнени днес (' + done.length + ')</h2>';
       if (done.length) {
-        doneHtml += '<ul class="tasks">' + done.map(function (t) {
-          return '<li><input type="checkbox" class="chk" checked data-id="' + esc(t.id) + '"><span class="task-text" style="text-decoration:line-through;color:#8a95a1;">' + esc(t.text) + '</span><span style="font-size:11px;color:#8a95a1;">' + esc(t.assignee) + '</span></li>';
+        html += '<ul class="tasks">' + done.map(function (t) {
+          return '<li data-id="' + esc(t.id) + '"><div class="task-row">' +
+            '<input type="checkbox" class="chk" checked data-id="' + esc(t.id) + '">' +
+            taskTextHtml(t, 'task-text-done') +
+            '<span class="task-assignee">' + esc(t.assignee) + '</span>' +
+            commentToggleBtn(t) +
+            '</div>' + commentsHtml(t) + '</li>';
         }).join('') + '</ul>';
       } else {
-        doneHtml += '<div class="empty">Все още няма изпълнени задачи.</div>';
+        html += '<div class="empty">Все още няма изпълнени задачи.</div>';
       }
-      doneHtml += '<div class="footer-row"><span class="count">Приключването премества изпълнените в Архив и ги маха от тук — активните остават за утре.</span><button class="btn-export" id="closeDayBtn" ' + (done.length ? '' : 'disabled') + '>Приключи деня</button></div>';
-      document.getElementById('doneCard').innerHTML = doneHtml;
+      html += '<div class="footer-row"><span class="count">Приключването премества изпълнените в Архив и ги маха от тук — активните остават за утре.</span>' +
+        '<button class="btn-export" id="closeDayBtn" ' + (done.length ? '' : 'disabled') + '>Приключи деня</button></div>';
+      document.getElementById('doneCard').innerHTML = html;
+    }
 
+    function attachHandlers() {
       document.querySelectorAll('.chk').forEach(function (cb) {
         cb.addEventListener('change', function () { toggle(cb.getAttribute('data-id'), cb.checked); });
       });
       document.querySelectorAll('[data-del]').forEach(function (btn) {
         btn.addEventListener('click', function () { del(btn.getAttribute('data-del')); });
       });
+      document.querySelectorAll('[data-approve]').forEach(function (btn) {
+        btn.addEventListener('click', function () { approve(btn.getAttribute('data-approve')); });
+      });
+      document.querySelectorAll('[data-edit]').forEach(function (btn) {
+        btn.addEventListener('click', function () { editingId = btn.getAttribute('data-edit'); render(); });
+      });
+      document.querySelectorAll('.edit-cancel').forEach(function (btn) {
+        btn.addEventListener('click', function () { editingId = null; render(); });
+      });
+      document.querySelectorAll('.edit-save').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          const li = btn.closest('li');
+          const text = li.querySelector('.edit-text').value.trim();
+          const assignee = li.querySelector('.edit-assignee').value;
+          if (!text) return;
+          editTask(btn.getAttribute('data-id'), text, assignee);
+        });
+      });
+      document.querySelectorAll('[data-toggle]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          const id = btn.getAttribute('data-toggle');
+          if (openComments.has(id)) {
+            openComments.delete(id);
+          } else {
+            openComments.add(id);
+            const t = data.find(function (x) { return x.id === id; });
+            if (t) markTaskOpened(t);
+          }
+          render();
+        });
+      });
+      document.querySelectorAll('[data-mark-read]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          const id = btn.getAttribute('data-mark-read');
+          const t = data.find(function (x) { return x.id === id; });
+          if (t) markTaskOpened(t);
+          render();
+        });
+      });
+      document.querySelectorAll('.comment[data-comment-id]').forEach(function (el) {
+        el.addEventListener('click', function (e) {
+          if (e.target.closest('button, input')) return;
+          markCommentSeen(el.getAttribute('data-comment-id'));
+          render();
+        });
+      });
+      document.querySelectorAll('.comment-input').forEach(function (input) {
+        input.addEventListener('input', function () {
+          commentDrafts[input.getAttribute('data-task')] = input.value;
+        });
+      });
+      document.querySelectorAll('.comment-send').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          const id = btn.getAttribute('data-task');
+          const input = document.querySelector('.comment-input[data-task="' + CSS.escape(id) + '"]');
+          const text = input.value.trim();
+          if (!text) return;
+          addComment(id, text);
+        });
+      });
+      document.querySelectorAll('.comment-edit-btn').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          editingCommentId = btn.getAttribute('data-comment');
+          markCommentSeen(editingCommentId);
+          render();
+        });
+      });
+      document.querySelectorAll('.comment-edit-cancel').forEach(function (btn) {
+        btn.addEventListener('click', function () { editingCommentId = null; render(); });
+      });
+      document.querySelectorAll('.comment-edit-save').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          const wrap = btn.closest('.comment-edit-row');
+          const text = wrap.querySelector('.comment-edit-text').value.trim();
+          if (!text) return;
+          editComment(btn.getAttribute('data-comment'), text);
+        });
+      });
+      document.querySelectorAll('.comment-delete-btn').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          if (!confirm('Да изтрия ли този коментар?')) return;
+          deleteComment(btn.getAttribute('data-comment'));
+        });
+      });
       const closeBtn = document.getElementById('closeDayBtn');
       if (closeBtn) closeBtn.addEventListener('click', closeDay);
+    }
+
+    function render() {
+      if (!Array.isArray(data)) {
+        document.getElementById('approvalCard').innerHTML = '';
+        document.getElementById('activeCard').innerHTML = '<h2>Активни задачи</h2><div class="empty">Няма данни (виж конзолата за грешка).</div>';
+        document.getElementById('doneCard').innerHTML = '';
+        return;
+      }
+      renderApproval();
+      renderActive();
+      renderDone();
+      attachHandlers();
     }
 
     async function refresh() {
@@ -126,8 +369,31 @@
       try {
         const res = await apiPost('addTask', { text: text, assignee: who });
         if (res.ok === false) { onError({ message: res.error }); return; }
-        data = res.tasks; render();
+        data = res.tasks;
+        const created = data.find(function (t) { return t.text === text && t.assignee === who; });
+        if (created) markTaskOpened(created);
+        render();
         document.getElementById('newTaskText').value = '';
+      } catch (err) { onError(err); }
+    }
+
+    async function editTask(id, text, assignee) {
+      try {
+        const res = await apiPost('editTask', { id: id, text: text, assignee: assignee });
+        if (res.ok === false) { onError({ message: res.error }); return; }
+        editingId = null;
+        data = res.tasks; render();
+      } catch (err) { onError(err); }
+    }
+
+    async function approve(id) {
+      try {
+        const res = await apiPost('approveTask', { id: id });
+        if (res.ok === false) { onError({ message: res.error }); return; }
+        data = res.tasks;
+        const approved = data.find(function (t) { return t.id === id; });
+        if (approved) markTaskOpened(approved);
+        render();
       } catch (err) { onError(err); }
     }
 
@@ -140,8 +406,36 @@
     }
 
     async function del(id) {
+      if (!confirm('Да изтрия ли тази задача?')) return;
       try {
         const res = await apiPost('deleteTask', { id: id });
+        if (res.ok === false) { onError({ message: res.error }); return; }
+        data = res.tasks; render();
+      } catch (err) { onError(err); }
+    }
+
+    async function addComment(taskId, text) {
+      try {
+        const res = await apiPost('addComment', { taskId: taskId, text: text });
+        if (res.ok === false) { onError({ message: res.error }); return; }
+        delete commentDrafts[taskId];
+        openComments.add(taskId);
+        data = res.tasks; render();
+      } catch (err) { onError(err); }
+    }
+
+    async function editComment(commentId, text) {
+      try {
+        const res = await apiPost('editComment', { commentId: commentId, text: text });
+        if (res.ok === false) { onError({ message: res.error }); return; }
+        editingCommentId = null;
+        data = res.tasks; render();
+      } catch (err) { onError(err); }
+    }
+
+    async function deleteComment(commentId) {
+      try {
+        const res = await apiPost('deleteComment', { commentId: commentId });
         if (res.ok === false) { onError({ message: res.error }); return; }
         data = res.tasks; render();
       } catch (err) { onError(err); }
@@ -175,12 +469,16 @@
 
     // init
     document.getElementById('todayLabel').textContent = new Date().toLocaleDateString('bg-BG');
-    document.getElementById('newTaskWho').innerHTML = Object.values(NAME_MAP).map(function (n) {
-      return '<option value="' + esc(n) + '">' + esc(n) + '</option>';
-    }).join('');
+    document.getElementById('newTaskWho').innerHTML = peopleOptions();
     document.getElementById('addBtn').addEventListener('click', addTask);
     buildLinks();
     refresh();
+
+    // автоматично опресняване — не пипа задача/коментар, който в момента се редактира
+    setInterval(function () { if (!editingId && !editingCommentId) refresh(); }, 15000);
+    document.addEventListener('visibilitychange', function () {
+      if (document.visibilityState === 'visible' && !editingId && !editingCommentId) refresh();
+    });
   </script>
 </body>
 </html>
