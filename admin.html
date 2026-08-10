@@ -250,10 +250,30 @@
         cb.addEventListener('change', function () { toggle(cb.getAttribute('data-id'), cb.checked); });
       });
       document.querySelectorAll('[data-del]').forEach(function (btn) {
-        btn.addEventListener('click', function () { del(btn.getAttribute('data-del')); });
+        btn.addEventListener('click', async function () {
+          const original = btn.textContent;
+          const isReject = original === 'Отхвърли';
+          const id = btn.getAttribute('data-del');
+          btn.disabled = true;
+          if (isReject) btn.textContent = 'Отхвърля се...';
+          await del(id);
+          if (document.body.contains(btn)) {
+            btn.disabled = false;
+            btn.textContent = original;
+          }
+        });
       });
       document.querySelectorAll('[data-approve]').forEach(function (btn) {
-        btn.addEventListener('click', function () { approve(btn.getAttribute('data-approve')); });
+        btn.addEventListener('click', async function () {
+          const id = btn.getAttribute('data-approve');
+          btn.disabled = true;
+          btn.textContent = 'Одобрява се...';
+          await approve(id);
+          if (document.body.contains(btn)) {
+            btn.disabled = false;
+            btn.textContent = 'Одобри';
+          }
+        });
       });
       document.querySelectorAll('[data-edit]').forEach(function (btn) {
         btn.addEventListener('click', function () { editingId = btn.getAttribute('data-edit'); render(); });
@@ -262,12 +282,24 @@
         btn.addEventListener('click', function () { editingId = null; render(); });
       });
       document.querySelectorAll('.edit-save').forEach(function (btn) {
-        btn.addEventListener('click', function () {
+        btn.addEventListener('click', async function () {
           const li = btn.closest('li');
-          const text = li.querySelector('.edit-text').value.trim();
-          const assignee = li.querySelector('.edit-assignee').value;
+          const textInput = li.querySelector('.edit-text');
+          const assigneeSelect = li.querySelector('.edit-assignee');
+          const text = textInput.value.trim();
+          const assignee = assigneeSelect.value;
           if (!text) return;
-          editTask(btn.getAttribute('data-id'), text, assignee);
+          btn.disabled = true;
+          btn.textContent = 'Запазва се...';
+          textInput.disabled = true;
+          assigneeSelect.disabled = true;
+          await editTask(btn.getAttribute('data-id'), text, assignee);
+          if (document.body.contains(btn)) {
+            btn.disabled = false;
+            btn.textContent = 'Запази';
+            textInput.disabled = false;
+            assigneeSelect.disabled = false;
+          }
         });
       });
       document.querySelectorAll('[data-toggle]').forEach(function (btn) {
@@ -304,12 +336,21 @@
         });
       });
       document.querySelectorAll('.comment-send').forEach(function (btn) {
-        btn.addEventListener('click', function () {
+        btn.addEventListener('click', async function () {
           const id = btn.getAttribute('data-task');
           const input = document.querySelector('.comment-input[data-task="' + CSS.escape(id) + '"]');
           const text = input.value.trim();
           if (!text) return;
-          addComment(id, text);
+          btn.disabled = true;
+          btn.textContent = 'Изпраща се...';
+          input.disabled = true;
+          await addComment(id, text);
+          // при успех render() вече е заместил този бутон с нов; при грешка го връщаме в нормално състояние
+          if (document.body.contains(btn)) {
+            btn.disabled = false;
+            btn.textContent = 'Изпрати';
+            input.disabled = false;
+          }
         });
       });
       document.querySelectorAll('.comment-edit-btn').forEach(function (btn) {
@@ -323,11 +364,20 @@
         btn.addEventListener('click', function () { editingCommentId = null; render(); });
       });
       document.querySelectorAll('.comment-edit-save').forEach(function (btn) {
-        btn.addEventListener('click', function () {
+        btn.addEventListener('click', async function () {
           const wrap = btn.closest('.comment-edit-row');
-          const text = wrap.querySelector('.comment-edit-text').value.trim();
+          const input = wrap.querySelector('.comment-edit-text');
+          const text = input.value.trim();
           if (!text) return;
-          editComment(btn.getAttribute('data-comment'), text);
+          btn.disabled = true;
+          btn.textContent = 'Запазва се...';
+          input.disabled = true;
+          await editComment(btn.getAttribute('data-comment'), text);
+          if (document.body.contains(btn)) {
+            btn.disabled = false;
+            btn.textContent = 'Запази';
+            input.disabled = false;
+          }
         });
       });
       document.querySelectorAll('.comment-delete-btn').forEach(function (btn) {
@@ -470,12 +520,22 @@
     // init
     document.getElementById('todayLabel').textContent = new Date().toLocaleDateString('bg-BG');
     document.getElementById('newTaskWho').innerHTML = peopleOptions();
-    document.getElementById('addBtn').addEventListener('click', addTask);
+    document.getElementById('addBtn').addEventListener('click', async function () {
+      const btn = document.getElementById('addBtn');
+      const input = document.getElementById('newTaskText');
+      btn.disabled = true;
+      btn.textContent = 'Добавя се...';
+      input.disabled = true;
+      await addTask();
+      btn.disabled = false;
+      btn.textContent = 'Добави';
+      input.disabled = false;
+    });
     buildLinks();
     refresh();
 
     // автоматично опресняване — не пипа задача/коментар, който в момента се редактира
-    setInterval(function () { if (!editingId && !editingCommentId) refresh(); }, 45000);
+    setInterval(function () { if (!editingId && !editingCommentId) refresh(); }, 15000);
     document.addEventListener('visibilitychange', function () {
       if (document.visibilityState === 'visible' && !editingId && !editingCommentId) refresh();
     });
