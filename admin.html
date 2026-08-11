@@ -115,6 +115,10 @@
       saveSeenComments();
     }
 
+    // "Лайк" на коментар — пази се в листа "Коментари" (колона "Харесано от"),
+    // за да го вижда и другата страна (админ вижда че личен потребител е
+    // харесал негов коментар, и обратно). Никога не пипа датата на коментара,
+    // затова не влияе на подредбата по активност.
     function esc(s) {
       return String(s).replace(/[&<>"']/g, function (c) {
         return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
@@ -167,7 +171,8 @@
           ? '<div class="comment-edit-row"><input type="text" class="comment-edit-text" value="' + esc(c.text) + '">' +
             '<button class="btn-primary comment-edit-save" data-comment="' + esc(c.id) + '">Запази</button>' +
             '<button class="btn-ghost comment-edit-cancel" data-comment="' + esc(c.id) + '">Отказ</button></div>'
-          : '<div class="comment-text"><span class="comment-text-value">' + esc(c.text) + '</span>' +
+          : '<div class="comment-text"><span class="comment-text-value">' + esc(c.text) +
+              ' ' + commentLikeBtnHtml(c) + '</span>' +
             '<div class="comment-actions">' +
               '<button class="comment-edit-btn" data-comment="' + esc(c.id) + '" title="Редактирай">✎</button>' +
               '<button class="comment-delete-btn" data-comment="' + esc(c.id) + '" title="Изтрий">🗑</button>' +
@@ -190,6 +195,14 @@
       const n = (t.comments || []).length;
       const unread = (t.comments || []).some(isUnread);
       return '<button class="btn-ghost comment-toggle' + (unread ? ' comment-toggle-unread' : '') + '" data-toggle="' + esc(t.id) + '">💬 ' + n + '</button>';
+    }
+
+    function commentLikeBtnHtml(c) {
+      const likedBy = c.likedBy || [];
+      const count = likedBy.length;
+      const mine = likedBy.indexOf('Админ') !== -1;
+      const cls = mine ? ' comment-like-mine' : (count > 0 ? ' comment-like-has' : '');
+      return '<button class="comment-like-btn' + cls + '" data-comment-like="' + esc(c.id) + '" title="' + (mine ? 'Махни харесване' : 'Хареса') + '">👍' + (count > 0 ? ' ' + count : '') + '</button>';
     }
 
     // fullCheck=true (само "Чакат одобрение"): удебелява и чисто нова задача
@@ -476,6 +489,12 @@
           render();
         });
       });
+      document.querySelectorAll('[data-comment-like]').forEach(function (btn) {
+        btn.addEventListener('click', async function () {
+          btn.disabled = true;
+          await toggleCommentLike(btn.getAttribute('data-comment-like'));
+        });
+      });
       document.querySelectorAll('.comment-input').forEach(function (input) {
         input.addEventListener('input', function () {
           commentDrafts[input.getAttribute('data-task')] = input.value;
@@ -641,6 +660,15 @@
         const res = await apiPost('editComment', { commentId: commentId, text: text });
         if (res.ok === false) { onError({ message: res.error }); return; }
         editingCommentId = null;
+        applyData(res);
+      } catch (err) { onError(err); }
+    }
+
+    async function toggleCommentLike(commentId) {
+      try {
+        const res = await apiPost('toggleCommentLike', { commentId: commentId });
+        if (res.ok === false) { onError({ message: res.error }); return; }
+        markCommentSeen(commentId);
         applyData(res);
       } catch (err) { onError(err); }
     }
