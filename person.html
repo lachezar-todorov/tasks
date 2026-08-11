@@ -10,15 +10,22 @@
   <div class="person-header">
     <img class="site-logo" src="logo.svg" alt="" onerror="this.style.display='none'">
   </div>
+  <div class="changelog-banner" id="changelogBanner" style="display:none;">
+    <div class="changelog-text">🆕 <strong>НОВО:</strong> Добавяне на проект към задача, задължително изискване на крайна или начална дата при създаване на задача, харесване на коментари и редактиране или изтриване на все още неодобрените задачи.</div>
+    <button type="button" class="btn-ghost" id="changelogDismiss">Прочетено</button>
+  </div>
   <div class="card person" style="margin:8px auto 0;">
     <h2 id="nameHeader">Задачи</h2>
     <p class="sub-note">Списъкът се обновява автоматично. Най-новите задачи са отгоре.</p>
     <div class="propose-row">
       <input type="text" id="newTaskText" placeholder="Предложи си задача...">
       <select id="newTaskProject"></select>
+      <label class="date-field">От <input type="date" id="newTaskStart"></label>
+      <label class="date-field">До <input type="date" id="newTaskEnd"></label>
       <label class="important-check"><input type="checkbox" id="newTaskImportant"> Важна</label>
       <button class="btn-primary" id="addBtn">Добави</button>
     </div>
+    <p class="sub-note" style="padding-top:0;">Трябва да избереш поне начална или крайна дата.</p>
     <div id="list"><div class="empty">Зареждане...</div></div>
   </div>
 
@@ -151,6 +158,24 @@
       return t.project ? '<span class="badge-project">' + esc(t.project) + '</span>' : '';
     }
 
+    function formatDisplayDate(iso) {
+      const parts = iso.split('-');
+      return parts[2] + '.' + parts[1] + '.' + parts[0];
+    }
+
+    function dateBadge(t) {
+      if (t.startDate && t.endDate) {
+        return '<span class="badge-date">' + esc(formatDisplayDate(t.startDate)) + ' – ' + esc(formatDisplayDate(t.endDate)) + '</span>';
+      }
+      if (t.startDate) {
+        return '<span class="badge-date">' + esc(formatDisplayDate(t.startDate)) + '</span>';
+      }
+      if (t.endDate) {
+        return '<span class="badge-date badge-date-deadline">Да се изпълни до: ' + esc(formatDisplayDate(t.endDate)) + '</span>';
+      }
+      return '';
+    }
+
     function taskTextHtml(t) {
       const unread = isTaskUnread(t);
       return '<span class="task-text' + (unread ? ' task-text-unread' : '') + '">' +
@@ -171,6 +196,8 @@
       return '<div class="task-row"><div class="edit-row">' +
         '<input type="text" class="edit-text" value="' + esc(t.text) + '">' +
         '<select class="edit-project">' + projectOptions(t.project) + '</select>' +
+        '<label class="date-field">От <input type="date" class="edit-start" value="' + esc(t.startDate || '') + '"></label>' +
+        '<label class="date-field">До <input type="date" class="edit-end" value="' + esc(t.endDate || '') + '"></label>' +
         '<label class="important-check"><input type="checkbox" class="edit-important"' + (t.important ? ' checked' : '') + '> Важна</label>' +
         '<button class="btn-primary pending-edit-save" data-id="' + esc(t.id) + '">Запази</button>' +
         '<button class="btn-ghost pending-edit-cancel" data-id="' + esc(t.id) + '">Отказ</button>' +
@@ -190,6 +217,7 @@
         return '<li class="' + (t.important ? 'important-row' : '') + '" data-id="' + esc(t.id) + '"><div class="task-row">' +
           (t.important ? '<span class="badge-important">Важна</span>' : '') +
           projectBadge(t) +
+          dateBadge(t) +
           taskTextHtml(t) +
           markReadBtnHtml(t) +
           commentToggleBtn(t) +
@@ -239,21 +267,30 @@
           const li = btn.closest('li');
           const textInput = li.querySelector('.edit-text');
           const projectSelect = li.querySelector('.edit-project');
+          const startInput = li.querySelector('.edit-start');
+          const endInput = li.querySelector('.edit-end');
           const importantCb = li.querySelector('.edit-important');
           const text = textInput.value.trim();
           const project = projectSelect.value;
+          const startDate = startInput.value;
+          const endDate = endInput.value;
           if (!text) return;
+          if (!startDate && !endDate) { alert('Избери поне начална или крайна дата.'); return; }
           btn.disabled = true;
           btn.textContent = 'Запазва се...';
           textInput.disabled = true;
           projectSelect.disabled = true;
+          startInput.disabled = true;
+          endInput.disabled = true;
           importantCb.disabled = true;
-          await editPendingTask(btn.getAttribute('data-id'), text, project, importantCb.checked);
+          await editPendingTask(btn.getAttribute('data-id'), text, project, importantCb.checked, startDate, endDate);
           if (document.body.contains(btn)) {
             btn.disabled = false;
             btn.textContent = 'Запази';
             textInput.disabled = false;
             projectSelect.disabled = false;
+            startInput.disabled = false;
+            endInput.disabled = false;
             importantCb.disabled = false;
           }
         });
@@ -375,10 +412,13 @@
       if (!text || !u) return;
       const important = document.getElementById('newTaskImportant').checked;
       const project = document.getElementById('newTaskProject').value;
+      const startDate = document.getElementById('newTaskStart').value;
+      const endDate = document.getElementById('newTaskEnd').value;
+      if (!startDate && !endDate) { alert('Избери поне начална или крайна дата.'); return; }
       try {
         const res = await fetch(API_URL, {
           method: 'POST',
-          body: JSON.stringify({ action: 'personAddTask', u: u, text: text, important: important, project: project })
+          body: JSON.stringify({ action: 'personAddTask', u: u, text: text, important: important, project: project, startDate: startDate, endDate: endDate })
         });
         const data = await res.json();
         if (data.ok === false) { alert('Грешка: ' + data.error); return; }
@@ -388,16 +428,18 @@
         document.getElementById('newTaskText').value = '';
         document.getElementById('newTaskImportant').checked = false;
         document.getElementById('newTaskProject').value = '';
+        document.getElementById('newTaskStart').value = '';
+        document.getElementById('newTaskEnd').value = '';
       } catch (err) {
         alert('Грешка при връзка със сървъра.');
       }
     }
 
-    async function editPendingTask(id, text, project, important) {
+    async function editPendingTask(id, text, project, important, startDate, endDate) {
       try {
         const res = await fetch(API_URL, {
           method: 'POST',
-          body: JSON.stringify({ action: 'personEditTask', u: u, id: id, text: text, project: project, important: important })
+          body: JSON.stringify({ action: 'personEditTask', u: u, id: id, text: text, project: project, important: important, startDate: startDate, endDate: endDate })
         });
         const data = await res.json();
         if (data.ok === false) { alert('Грешка: ' + data.error); return; }
@@ -489,18 +531,35 @@
       const input = document.getElementById('newTaskText');
       const importantCb = document.getElementById('newTaskImportant');
       const projectSelect = document.getElementById('newTaskProject');
+      const startInput = document.getElementById('newTaskStart');
+      const endInput = document.getElementById('newTaskEnd');
       btn.disabled = true;
       btn.textContent = 'Добавя се...';
       input.disabled = true;
       importantCb.disabled = true;
       projectSelect.disabled = true;
+      startInput.disabled = true;
+      endInput.disabled = true;
       await addTask();
       btn.disabled = false;
       btn.textContent = 'Добави';
       input.disabled = false;
       importantCb.disabled = false;
+      startInput.disabled = false;
+      endInput.disabled = false;
       projectSelect.disabled = false;
     });
+    // Съобщение за новите функции — веднъж скрито (клик на "Скрий"), не се показва повече никога.
+    const CHANGELOG_KEY = 'changelogDismissed_v1';
+    const changelogBanner = document.getElementById('changelogBanner');
+    if (!localStorage.getItem(CHANGELOG_KEY)) {
+      changelogBanner.style.display = '';
+    }
+    document.getElementById('changelogDismiss').addEventListener('click', function () {
+      localStorage.setItem(CHANGELOG_KEY, '1');
+      changelogBanner.remove();
+    });
+
     refresh();
     setInterval(function () { if (!editingCommentId && !editingPendingId) refresh(); }, 15000);
     document.addEventListener('visibilitychange', function () {
