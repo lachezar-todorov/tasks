@@ -98,14 +98,16 @@
       'Алмакс',
       'Биотрейд',
       'Белисимо',
-      'Ресторант Шамот',
       'Здравко Здравков',
-      'Технополис, гр. Монтана',
       'Младен, с. Лозен',
       'Ебаг',
       'Холидей парк, гр. Стара Загора',
       'Шамот',
-      'ГОРА'
+      'ГОРА',
+      'Практикер',
+      'Технополис',
+      'Фантастико',
+      'Кауфланд'
     ];
 
     const pin = sessionStorage.getItem('pin');
@@ -629,7 +631,7 @@
         '<div class="day-task-main' + (canEdit && !editing ? ' day-task-clickable' : '') + '"' + (canEdit && !editing ? ' data-day-task-open="' + esc(t.id) + '"' : '') + '>' +
           (timeLabel ? '<span class="day-task-time' + (isDeadline ? ' day-task-time-deadline' : '') + '">' + esc(timeLabel) + '</span>' : '') +
           '<span class="day-task-assignee">' + esc(t.assignee) + '</span>' +
-          '<div class="day-task-text">' + esc(t.text) + '</div>' +
+          '<div class="day-task-text">' + projectBadge(t) + (t.project ? ' ' : '') + esc(t.text) + '</div>' +
           (t.note ? '<div class="day-task-note">' + esc(t.note) + '</div>' : '') +
           (editing ? scheduleFormHtml(t) : '') +
         '</div>' +
