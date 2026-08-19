@@ -11,7 +11,7 @@
     <img class="site-logo" src="logo.svg" alt="" onerror="this.style.display='none'">
   </div>
   <div class="changelog-banner" id="changelogBanner" style="display:none;">
-    <div class="changelog-text">🆕 <strong>НОВО!</strong> Добавени категории на задача "Покупка" и "Транспорт". В страницата на календара, вече може подробно да бъде отворен конкретен ден и да се добави час или бележка от собственика на задачата! Може да се филтрират задачите по проект. Вече има личен календар и могат да се добавят собствени задачи, които са отделно от административния календар. Може да се избира категория на задачата — вече включва и "Профилактика" и "Оглед". Вече има и поле за град, което е задължително за попълване. Добавен е нов таб "Изтегляне на задачи", откъдето можеш да изтеглиш своите одобрени задачи като Excel файл, филтрирани по проект/вид/град.</div>
+    <div class="changelog-text">🆕 <strong>НОВО!</strong> Добавен е нов таб "Изтегляне на задачи", откъдето можеш да изтеглиш своите одобрени задачи като Excel файл, филтрирани по проект/вид/град. Добавени категории на задача "Покупка". "Транспорт", "Рекламация" и "Оферта". Може да се избира категория на задачата. </div>
     <button type="button" class="btn-ghost" id="changelogDismiss">Скрий</button>
   </div>
 
@@ -125,15 +125,18 @@
       'Съни Вю',
       'Ривър Парк',
       'Айко',
-      'Сънотех'
+      'Сънотех',
+      'DHL'
     ];
 
-    const TASK_TYPES = ['Сервиз', 'Монтаж', 'Заваряване', 'Профилактика', 'Оглед', 'Транспорт', 'Покупка'];
-    const TASK_TYPE_PREFIX = { 'Сервиз': 'Сервиз - ', 'Монтаж': 'Монтаж - ', 'Заваряване': 'Заваряване - ', 'Профилактика': 'Профилактика - ', 'Оглед': 'Оглед - ', 'Транспорт': 'Транспорт - ', 'Покупка': 'Покупка - ' };
-    const SHOPS = ['Пасадор', 'Интеза', 'Мезенбург', 'Иигъл Трейд', 'Одекс', 'Метал М', 'Миланов и син', 'Илпени'];
+    const TASK_TYPES = ['Сервиз', 'Монтаж', 'Заваряване', 'Профилактика', 'Оглед', 'Транспорт', 'Покупка', 'Рекламация', 'Оферта'];
+    const TASK_TYPE_PREFIX = { 'Сервиз': 'Сервиз - ', 'Монтаж': 'Монтаж - ', 'Заваряване': 'Заваряване - ', 'Профилактика': 'Профилактика - ', 'Оглед': 'Оглед - ', 'Транспорт': 'Транспорт - ', 'Покупка': 'Покупка - ', 'Рекламация': 'Рекламация - ', 'Оферта': 'Оферта - ' };
+    const SHOPS = ['Пасадор', 'Интеза', 'Мезенбург', 'Иигъл Трейд', 'Одекс', 'Метал М', 'Миланов и син', 'Илпени', 'Текентруп', 'Промщал', 'Аса Аблой', 'Янсен', 'ITW', 'Прюм', 'Елмарк', 'Шрак'];
+    // Категориите, при които важи полето "Магазин".
+    const SHOP_TASK_TYPES = ['Покупка', 'Рекламация'];
     const ALL_CITIES_OPTION = 'Всички градове';
     function displayTaskText(t) {
-      const shopPart = (t.taskType === 'Покупка' && t.shop) ? t.shop + ': ' : '';
+      const shopPart = (SHOP_TASK_TYPES.indexOf(t.taskType) !== -1 && t.shop) ? t.shop + ': ' : '';
       return (TASK_TYPE_PREFIX[t.taskType] || '') + (t.city ? t.city + ': ' : '') + shopPart + t.text;
     }
 
@@ -286,7 +289,7 @@
 
     // Полето "Магазин" се показва само когато вид задача е "Покупка".
     function updateShopVisibility(typeSelect, shopSelect) {
-      const show = typeSelect.value === 'Покупка';
+      const show = SHOP_TASK_TYPES.indexOf(typeSelect.value) !== -1;
       shopSelect.style.display = show ? '' : 'none';
       if (!show) shopSelect.value = '';
     }
@@ -344,7 +347,7 @@
         '<textarea class="edit-text autogrow-textarea" rows="1">' + esc(t.text) + '</textarea>' +
         '<select class="edit-project">' + projectOptions(t.project) + '</select>' +
         '<select class="edit-type">' + taskTypeOptions(t.taskType) + '</select>' +
-        '<select class="edit-shop" style="display:' + (t.taskType === 'Покупка' ? '' : 'none') + '">' + shopOptions(t.shop) + '</select>' +
+        '<select class="edit-shop" style="display:' + (SHOP_TASK_TYPES.indexOf(t.taskType) !== -1 ? '' : 'none') + '">' + shopOptions(t.shop) + '</select>' +
         '<select class="edit-city">' + cityOptions(t.city) + '</select>' +
         '<label class="date-field">От <input type="date" class="edit-start" value="' + esc(t.startDate || '') + '"></label>' +
         '<label class="date-field">До <input type="date" class="edit-end" value="' + esc(t.endDate || '') + '"></label>' +
@@ -437,7 +440,7 @@
           const text = textInput.value.trim();
           const project = projectSelect.value;
           const taskType = typeSelect.value;
-          const shop = taskType === 'Покупка' ? shopSelect.value : '';
+          const shop = SHOP_TASK_TYPES.indexOf(taskType) !== -1 ? shopSelect.value : '';
           const city = citySelect.value;
           const startDate = startInput.value;
           const endDate = endInput.value;
@@ -996,13 +999,26 @@
     // грешка — това чупи res.json(). При такъв провал (или чиста мрежова
     // грешка) опитваме автоматично още 2 пъти, с кратко изчакване между
     // опитите, преди да предадем грешката нагоре към извикващия.
+    // Тези две грешки идват само от default-клоновете на doGet/doPost в
+    // Code.gs, когато action не е разпознат — фронтендът никога съзнателно
+    // не праща непознат action, така че ако все пак ги видим, това почти
+    // сигурно е преходен проблем от Apps Script (напр. точно след ново
+    // публикуване на деплой, докато се прехвърли към новата версия), а не
+    // истинска грешка — затова се третират като още една причина за retry.
+    const TRANSIENT_SERVER_ERRORS = ['Непозната заявка.', 'Непозната команда.'];
+
     async function fetchJsonWithRetry(url, options, attempts) {
       attempts = attempts || 3;
       let lastErr;
       for (let i = 0; i < attempts; i++) {
         try {
           const res = await fetch(url, options);
-          return await res.json();
+          const data = await res.json();
+          if (data && data.ok === false && TRANSIENT_SERVER_ERRORS.indexOf(data.error) !== -1 && i < attempts - 1) {
+            await new Promise(function (resolve) { setTimeout(resolve, 1500 * (i + 1)); });
+            continue;
+          }
+          return data;
         } catch (err) {
           lastErr = err;
           if (i < attempts - 1) {
@@ -1048,7 +1064,7 @@
       const personalCalendar = document.getElementById('newTaskPersonalCalendar').checked;
       const project = document.getElementById('newTaskProject').value;
       const taskType = document.getElementById('newTaskType').value;
-      const shop = taskType === 'Покупка' ? document.getElementById('newTaskShop').value : '';
+      const shop = SHOP_TASK_TYPES.indexOf(taskType) !== -1 ? document.getElementById('newTaskShop').value : '';
       const city = document.getElementById('newTaskCity').value;
       const startDate = document.getElementById('newTaskStart').value;
       const endDate = document.getElementById('newTaskEnd').value;
